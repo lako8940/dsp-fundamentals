@@ -3,31 +3,45 @@ from scipy.signal import resample_poly, firwin, bilinear, lfilter
 import matplotlib.pyplot as plt
 
 # Read in signal
-x = np.fromfile('./fm_rds_250k_1Msamples.iq', dtype=np.complex64)
+import os
+file_path = './fm_capture.iq'
+file_size = os.path.getsize(file_path)
+print(f"File size on disk: {file_size / 1e6:.2f} MB")
+x = np.fromfile(file_path, dtype=np.complex64)
 sample_rate = 250e3
 # changed to 98.7MHz for AFN
 center_freq = 98.7e6
+print(f"Loaded {len(x)} IQ samples from file")
+
+# Normalize to prevent overflow in quadrature demod
+x = x / np.abs(x).max()
+print(f"Normalized signal, max amplitude: {np.abs(x).max()}")
 
 # Quadrature Demod
 x = 0.5 * np.angle(x[0:-1] * np.conj(x[1:])) # see https://wiki.gnuradio.org/index.php/Quadrature_Demod
+print(f"After quadrature demod: {len(x)} samples, range: [{x.min():.3f}, {x.max():.3f}]")
 
 # Freq shift
 N = len(x)
 f_o = -57e3 # amount we need to shift by
 t = np.arange(N)/sample_rate # time vector
 x = x * np.exp(2j*np.pi*f_o*t) # down shift
+print(f"After freq shift by {f_o/1e3:.0f} kHz: {len(x)} samples")
 
 # Low-Pass Filter
 taps = firwin(numtaps=101, cutoff=7.5e3, fs=sample_rate)
 x = np.convolve(x, taps, 'valid')
+print(f"After low-pass filter: {len(x)} samples")
 
 # Decimate by 10, now that we filtered and there wont be aliasing
 x = x[::10]
 sample_rate = 25e3
+print(f"After decimation: {len(x)} samples @ {sample_rate/1e3:.0f} kHz")
 
 # Resample to 19kHz
 x = resample_poly(x, 19, 25) # up, down
 sample_rate = 19e3
+print(f"After resampling: {len(x)} samples @ {sample_rate/1e3:.0f} kHz")
 
 # Symbol sync, using what we did in sync chapter
 samples = x # for the sake of matching the sync chapter
@@ -52,6 +66,7 @@ x = out[2:i_out] # remove the first two, and anything after i_out (that was neve
 
 #new sample_rate should be 1187.5
 sample_rate /= 16
+print(f"After symbol sync: {len(x)} samples @ {sample_rate:.1f} Hz")
 
 # Fine freq sync
 samples = x # for the sake of matching the sync chapter
@@ -78,13 +93,17 @@ for i in range(N):
     while phase < 0:
         phase += 2*np.pi
 x = out
+print(f"After fine freq sync: {len(x)} samples")
 
 # Demod BPSK
 bits = (np.real(x) > 0).astype(int) # 1's and 0's
+print(f"After BPSK demod: {len(bits)} bits")
 
 # Differential decoding, so that it doesn't matter whether our BPSK was 180 degrees rotated without us realizing it
 bits = (bits[1:] - bits[0:-1]) % 2
 bits = bits.astype(np.uint8) # for decoder
+print(f"After differential decoding: {len(bits)} bits")
+print(f"Starting RDS decoder...")
 
 ###########
 # DECODER #
@@ -123,6 +142,7 @@ lastseen_offset = 0
 
 # the synchronization process is described in Annex C, page 66 of the standard */
 bytes_out = []
+presync_attempts = 0
 for i in range(len(bits)):
     # in C++ reg doesn't get init so it will be random at first, for ours its 0s
     # It was also an unsigned long but never seemed to get anywhere near the max value
@@ -133,6 +153,9 @@ for i in range(len(bits)):
         for j in range(5):
             if reg_syndrome == syndrome[j]:
                 if not presync:
+                    presync_attempts += 1
+                    if presync_attempts % 100 == 0:
+                        print(f"Presync attempts: {presync_attempts}, at bit {i}/{len(bits)}")
                     lastseen_offset = j
                     lastseen_offset_counter = i
                     presync = True
@@ -213,6 +236,9 @@ for i in range(len(bits)):
                 blocks_counter = 0
                 wrong_blocks_counter = 0
 
+print(f"\nDecoder finished. Found {len(bytes_out)} RDS groups")
+print(f"Total presync pattern matches: {presync_attempts}")
+
 ###########
 # PARSER  #
 ###########
@@ -274,6 +300,7 @@ coverage_area_codes = ["Local",
 radiotext_AB_flag = 0
 radiotext = [' ']*65
 first_time = True
+print(f"Starting RDS parser...")
 for group in bytes_out:
     group_0 = group[1] | (group[0] << 8)
     group_1 = group[3] | (group[2] << 8)
