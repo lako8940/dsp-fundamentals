@@ -10,7 +10,7 @@ print(f"File size on disk: {file_size / 1e6:.2f} MB")
 x = np.fromfile(file_path, dtype=np.complex64)
 sample_rate = 250e3
 # changed to 98.7MHz for AFN
-center_freq = 98.7e6
+center_freq = 89.3e6
 print(f"Loaded {len(x)} IQ samples from file")
 
 # Normalize to prevent overflow in quadrature demod

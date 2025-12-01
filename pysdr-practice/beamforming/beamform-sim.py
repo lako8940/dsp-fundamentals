@@ -11,7 +11,7 @@ tx = np.exp(2j * np.pi * f_tone * t)
 
 d = 0.5 # half wavelength spacing
 Nr = 3
-theta_degrees = 20 # direction of arrival (feel free to change this, it's arbitrary)
+theta_degrees = 50 # direction of arrival (feel free to change this, it's arbitrary)
 theta = theta_degrees / 180 * np.pi # convert to radians
 s = np.exp(2j * np.pi * d * np.arange(Nr) * np.sin(theta)) # Steering Vector
 print(s) # note that it's 3 elements long, it's complex, and the first element is 1+0j
